@@ -1,0 +1,81 @@
+import sys
+import os
+import re
+import json
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+from splunklib.searchcommands import \
+    dispatch, StreamingCommand, Configuration, Option, validators
+
+@Configuration(local=True)
+class CaseInCommand(StreamingCommand):
+    field = Option(require=True)
+    case = Option(require=True)
+    els = Option(require=False)
+    output = Option(require=False)
+
+
+    def stream(self, records):
+        field = self.field
+        case = self.parseDict(self.case)
+        els = self.els if self.els != None else f"${self.field}$"
+        output = self.output if self.output != None else None
+        
+        for record in records:
+ 
+            field_val = record[field]
+            flag = 0
+            for k in list(case.keys()):
+                fflag = 0
+                fk = 0
+                fflag, fname = self.str2field(k)
+                if fflag == 1:
+                    fk = record[fname]
+                    
+                for v in case[k]:
+                    if (re.fullmatch(v, field_val)) is not None:
+                        if fflag == 1:
+                            k = fk
+                        if output is None:
+                            record[field] = k
+                        elif output is not None: 
+                            record[output] = k
+                        flag=1
+                        yield record
+                        break
+                if flag == 1:
+                    break
+            if flag==0:
+                fflag, fname = self.str2field(els)
+                if fflag == 1:
+                    els = record[fname]
+                if output is None:
+                    record[field] = els
+                else:
+                    record[output] = els
+
+            yield record
+
+    '''
+        Convert headers string into dict
+        @headers string: Headers as json string
+        @return dict
+    '''
+    def parseDict(self, dict):
+        # Replace single quotes with double quotes for valid json
+        return json.loads(
+        dict.replace('\'', '"')
+        )
+    
+    def str2field(self, field):
+        flag = 0
+        fname = 0
+        if re.fullmatch("^\$.*\$$", field):
+            flag = 1
+            fname = field.lstrip("$").rstrip("$")
+        return flag, fname
+        
+        
+                
+if __name__ == "__main__":
+    dispatch(CaseInCommand, sys.argv, sys.stdin, sys.stdout, __name__)
